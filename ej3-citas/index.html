@@ -1,0 +1,66 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Citas médicas</title>
+<style>
+:root{--b:#0891b2;--bg:#f0f9fb;--t:#0c4a6e;--m:#64748b;--e:#dc2626}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t)}
+header{background:linear-gradient(135deg,#0891b2,#4f46e5);color:#fff;padding:22px 32px}header h1{margin:0;font-size:22px}header p{margin:4px 0 0;opacity:.85}
+main{max-width:1150px;margin:auto;padding:24px;display:grid;gap:20px}
+.card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 10px #0001;overflow-x:auto}.card h2{margin:0 0 12px;font-size:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.kpi{background:#f0f9fb;border-radius:12px;padding:12px}.kpi b{display:block;font-size:22px}.kpi span{font-size:12px;color:var(--m)}
+label{display:block;font-size:13px;color:var(--m);margin:0 0 4px}
+input,select{padding:9px;border:1px solid #d1d5db;border-radius:8px;font:inherit;width:100%}
+button{background:var(--b);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit}button.g{background:#e5e7eb;color:var(--t)}button.r{background:var(--e)}
+.slots{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(90px,1fr))}
+.slots button{background:#ecfeff;color:var(--t);border:1px solid #67e8f9}.slots button:disabled{background:#f1f5f9;color:#94a3b8;border-color:#e2e8f0;text-decoration:line-through;cursor:not-allowed}
+.pill{padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600}.ok{background:#dcfce7;color:#166534}.w{background:#fef3c7;color:#92400e}.e{background:#fee2e2;color:#991b1b}.i{background:#e0e7ff;color:#3730a3}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #eee;font-size:13px}
+#msg{margin-top:10px;font-weight:600}
+</style></head><body>
+<header><h1>🏥 Citas médicas</h1><p>Sin duplicados · permisos por rol · recordatorios con reintento · auditoría</p></header>
+<main>
+<div class="kpis" id="kpis"></div>
+<div class="card"><div class="grid">
+ <div><label>Usuario (simula el inicio de sesión)</label><select id="user" onchange="load()"><option value="ana">Paciente: Ana Torres</option><option value="luis">Paciente: Luis Vera</option><option value="recepcion">Recepción</option><option value="perez">Médico: Dr. Pérez</option><option value="salas">Médica: Dra. Salas</option></select></div>
+ <div><label>Médico</label><select id="doc" onchange="load()"><option>Dr. Pérez</option><option>Dra. Salas</option></select></div>
+ <div><label>Fecha</label><input type="date" id="date" onchange="load()"></div>
+ <div id="pnw"><label>Nombre del paciente</label><input id="pn" value="Carlos Ruiz"></div>
+ <div><label>Documento (opcional)</label><input id="dni" placeholder="Cédula"></div>
+ <div><label>Contacto (correo/teléfono)</label><input id="ct" value="paciente@correo.com"></div>
+</div><div id="msg"></div></div>
+<div class="card"><h2>Disponibilidad (elige un horario para reservar)</h2><div class="slots" id="slots"></div></div>
+<div class="card"><h2>Citas visibles para este usuario</h2><div id="list"></div></div>
+<div class="card"><h2>Cola de recordatorios</h2><div id="rem"></div></div>
+<div class="card"><h2>Auditoría</h2><div id="aud"></div></div>
+</main>
+<script>
+const $=i=>document.getElementById(i);
+const d0=new Date();d0.setDate(d0.getDate()+1);$('date').value=d0.toISOString().slice(0,10);
+let ME={};
+async function api(p,m='GET',b){const r=await fetch('/api/'+p,{method:m,headers:{'Content-Type':'application/json','X-User':$('user').value},body:b?JSON.stringify(b):undefined});return {code:r.status,d:await r.json()}}
+const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
+async function book(t){
+ const r=await api('appointments','POST',{doctor:$('doc').value,date:$('date').value,time:t,patient_name:$('pn').value,document:$('dni').value,contact:$('ct').value});
+ $('msg').textContent=r.d.error?('⛔ '+r.code+': '+r.d.error):'✔ Cita reservada. Se programó un recordatorio.';load();
+}
+async function act(id,a){const r=await api('appointments/'+id+'/'+a,'POST');if(r.d.error)alert(r.d.error);load()}
+async function prov(){await api('provider','POST',{up:!$('down').checked});load()}
+async function proc(){const r=await api('reminders/process','POST');$('msg').textContent=r.d.error?r.d.error:`Cola procesada: ${r.d.enviados} enviados, ${r.d.reintentos} reintentos, ${r.d.fallidos} fallidos.`;load()}
+async function load(){
+ ME=(await api('me')).d;
+ $('pnw').style.display=ME.role==='recepcion'?'block':'none';
+ const sl=(await api(`slots?doctor=${encodeURIComponent($('doc').value)}&date=${$('date').value}`)).d;
+ $('slots').innerHTML=sl.map(s=>`<button ${s.free&&ME.role!=='medico'?'':'disabled'} onclick="book('${s.time}')">${s.time}</button>`).join('');
+ const L=(await api('appointments')).d;
+ const sc=a=>a.status==='ACTIVA'?'ok':a.status==='AUSENTE'?'w':'e';
+ $('list').innerHTML='<table><tr><th>#</th><th>Médico</th><th>Fecha</th><th>Hora</th><th>Paciente</th>'+(ME.role==='medico'?'':'<th>Contacto</th>')+'<th>Estado</th><th></th></tr>'+L.map(a=>`<tr><td>${a.id}</td><td>${a.doctor}</td><td>${a.date}</td><td>${a.time}</td><td>${a.patient_name}</td>${ME.role==='medico'?'':'<td>'+a.contact+'</td>'}<td>${pill(a.status,sc(a))}</td><td>${a.status==='ACTIVA'?(ME.role!=='medico'?`<button class="r" onclick="act(${a.id},'cancel')">Cancelar</button> `:'')+(ME.role!=='paciente'?`<button class="g" onclick="act(${a.id},'noshow')">Marcar ausente</button>`:''):''}</td></tr>`).join('')+'</table>'+(ME.role==='medico'?'<p style="color:#64748b">El médico solo ve su agenda (nombre y hora): no ve contacto ni documento y no puede cancelar.</p>':'');
+ if(ME.role==='recepcion'){
+  const pv=(await api('provider')).d, R=(await api('reminders')).d, A=(await api('audit')).d;
+  $('rem').innerHTML=`<label><input type="checkbox" id="down" style="width:auto" ${pv.provider_up?'':'checked'} onchange="prov()"> Simular proveedor de correo/SMS caído</label><br><button onclick="proc()">Procesar cola ahora</button><table><tr><th>Cita</th><th>Paciente</th><th>Fecha</th><th>Estado</th><th>Intentos</th><th>Próximo intento</th></tr>`+R.map(x=>`<tr><td>#${x.appt_id}</td><td>${x.patient_name}</td><td>${x.date} ${x.time}</td><td>${pill(x.status,x.status==='ENVIADO'?'ok':x.status==='FALLIDO'?'e':'w')}</td><td>${x.tries}/3</td><td>${x.status==='PENDIENTE'&&x.tries?Math.round((x.next_try-Date.now()/1000)/60)+' min (backoff)':'—'}</td></tr>`).join('')+'</table>';
+  $('aud').innerHTML='<table><tr><th>Hora</th><th>Actor</th><th>Rol</th><th>Evento</th><th>Detalle</th></tr>'+A.map(x=>`<tr><td>${x.ts}</td><td>${x.actor}</td><td>${x.role}</td><td>${x.event}</td><td>${x.detail}</td></tr>`).join('')+'</table>';
+ }else{$('rem').textContent='Solo recepción puede ver y procesar la cola de recordatorios.';$('aud').textContent='Solo recepción puede ver la auditoría.'}
+ const M=(await api('metrics')).d,K=[['Citas activas',M.citas_activas],['Canceladas',M.citas_canceladas],['Ausencias',M.ausencias],['Citas duplicadas (meta 0)',M.citas_duplicadas],['Conflictos bloqueados',M.conflictos_bloqueados],['Recordatorios entregados',M.recordatorios_entregados_pct==null?'—':M.recordatorios_entregados_pct+'%']];
+ $('kpis').innerHTML=K.map(k=>`<div class="kpi"><b>${k[1]}</b><span>${k[0]}</span></div>`).join('');
+}
+load();
+</script></body></html>
